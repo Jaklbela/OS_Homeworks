@@ -27,7 +27,7 @@ int main(int argc, char** argv) {
 
   int fd[2], fd2[2];
     
-  if (pipe(fd) < 0) {
+  if (pipe(fd) < 0) {             // Создаю трубы.
     printf("Can't create pipe\n");
     exit(-1);
   }
@@ -37,7 +37,7 @@ int main(int argc, char** argv) {
     exit(-1);
   }
 
-  pid_t fst = fork();
+  pid_t fst = fork(); // Создаю первый процесс.
 
   if (fst == -1) {
      printf("Couldn't create first child.\n");
@@ -71,14 +71,14 @@ int main(int argc, char** argv) {
     }
     exit(EXIT_SUCCESS);
   } 
-      pid_t snd = fork();
+      pid_t snd = fork();   // Создаю второй процесс.
       if (snd == -1) {
       printf("Couldn't create second child.\n");
       exit(-1);
     } else if (snd == 0) {
     sleep(2);
           printf("Second processe online\n");
-          read_size = read(fd[0], str_buf, buf_size);
+          read_size = read(fd[0], str_buf, buf_size);  // Считываю текст из трубы.
           if(read_size == -1) {
             printf("Can't read message from pipe.\n");
             exit(-1);
@@ -86,83 +86,83 @@ int main(int argc, char** argv) {
             printf("Pipe message has been read.\n");
           }
           
-          char text[read_size * 4];
+          char text[read_size * 4];               // Алгоритм замены.
         int i = 0;
-        while (i < read_size * 4) {
-        if (str_buf[i] == 'A') {
+        for (int j = 0; j < read_size; j++) {
+        if (str_buf[j] == 'A') {
           text[i] = '0';
           text[i + 1] = 'x';
           text[i + 2] = '4';
           text[i + 3] = '1';
           i += 4;
-        } else if (str_buf[i] == 'a') {
+        } else if (str_buf[j] == 'a') {
           text[i] = '0';
           text[i + 1] = 'x';
           text[i + 2] = '6';
           text[i + 3] = '1';
           i += 4;
-        } else if (str_buf[i] == 'E') {
+        } else if (str_buf[j] == 'E') {
           text[i] = '0';
           text[i + 1] = 'x';
           text[i + 2] = '4';
           text[i + 3] = '5';
           i += 4;
-        } else if (str_buf[i] == 'e') {
+        } else if (str_buf[j] == 'e') {
           text[i] = '0';
           text[i + 1] = 'x';
           text[i + 2] = '6';
           text[i + 3] = '5';
           i += 4;
-        } else if (str_buf[i] == 'I') {
+        } else if (str_buf[j] == 'I') {
           text[i] = '0';
           text[i + 1] = 'x';
           text[i + 2] = '4';
           text[i + 3] = '9';
           i += 4;
-        } else if (str_buf[i] == 'i') {
+        } else if (str_buf[j] == 'i') {
           text[i] = '0';
           text[i + 1] = 'x';
           text[i + 2] = '6';
           text[i + 3] = '9';
           i += 4;
-        } else if (str_buf[i] == 'O') {
+        } else if (str_buf[j] == 'O') {
           text[i] = '0';
           text[i + 1] = 'x';
           text[i + 2] = '4';
           text[i + 3] = 'F';
           i += 4;
-        } else if (str_buf[i] == 'o') {
+        } else if (str_buf[j] == 'o') {
           text[i] = '0';
           text[i + 1] = 'x';
           text[i + 2] = '6';
           text[i + 3] = 'f';
           i += 4;
-        } else if (str_buf[i] == 'U') {
+        } else if (str_buf[j] == 'U') {
           text[i] = '0';
           text[i + 1] = 'x';
           text[i + 2] = '5';
           text[i + 3] = '5';
           i += 4;
-        } else if (str_buf[i] == 'u') {
+        } else if (str_buf[j] == 'u') {
           text[i] = '0';
           text[i + 1] = 'x';
           text[i + 2] = '7';
           text[i + 3] = '5';
           i += 4;
-        } else if (str_buf[i] == 'Y') {
+        } else if (str_buf[j] == 'Y') {
           text[i] = '0';
           text[i + 1] = 'x';
           text[i + 2] = '5';
           text[i + 3] = '9';
           i += 4;
-        } else if (str_buf[i] == 'y') {
+        } else if (str_buf[j] == 'y') {
           text[i] = '0';
           text[i + 1] = 'x';
           text[i + 2] = '7';
           text[i + 3] = '9';
           i += 4;
         } else {
-          text[i] = str_buf[i];
+          text[i] = str_buf[j];
           text[i + 1] = '0';
           text[i + 2] = '0';
           text[i + 3] = '0';
@@ -170,14 +170,14 @@ int main(int argc, char** argv) {
         }
       }
 
-      size = write(fd2[1], text, read_size * 4);  // Пишу в трубу данные.
+      size = write(fd2[1], text, read_size * 4);  // Пишу во вторую трубу данные.
       if(size != read_size * 4) {
         printf("Can't write all message to pipe\n");
         exit(-1);
       } else {
         printf("Modifies message recorded to pipe.\n");
       }
-      if(close(fd[0]) < 0){
+      if(close(fd[0]) < 0){                 // Закрываю первую трубу.
             printf("Can't close writing side of pipe\n");
             exit(-1);
       }
@@ -188,7 +188,7 @@ int main(int argc, char** argv) {
       exit(EXIT_SUCCESS);
     } 
     
-    pid_t trd = fork();
+    pid_t trd = fork();             // Создаю третий процесс.
     if (trd == -1) {
       printf("Couldn't create third child.\n");
       exit(-1);

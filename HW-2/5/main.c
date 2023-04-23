@@ -183,7 +183,7 @@ int main(int argc, char **argv) {
     }
     
 					// Код родителя.
-    char decoded[100010];
+    char decoded[100000];
     int ind = 0;
     int file = open(input, O_RDONLY, S_IRWXU);
     int flag = 1;

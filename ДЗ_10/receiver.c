@@ -7,7 +7,7 @@ volatile int count = 0;
 volatile int num = 0;
 struct sigaction sigusr1, sigusr2;
 
-void sigusr1Handler(int signal) {
+void sigusr1Handler(int signal) {       // Обработчики сигналов.
     count++;
 }
 
@@ -30,7 +30,7 @@ int main() {
         exit(-1);
     }
     printf("Receiver PID is: %d\n", getpid());
-    printf("Wait...\n");
+    printf("Wait...\n");            // Ожидаем отправителя.
     while (count < 30) {
         pause();
     }

@@ -123,7 +123,7 @@ char *sh_memo = "shared_memory";
 int shmid = -1;
 int pr_num;
 
-						// Структура сообщения, с которым идет работа.
+// Структура сообщения, с которым идет работа.
 typedef struct {
     int type;
     int size;
@@ -135,43 +135,43 @@ typedef struct {
     };
 } message;
 
-message *msg_adr = NULL;  		// Адрес сообщения в разделяемой памяти.
+message *msg_adr = NULL;      // Адрес сообщения в разделяемой памяти.
 
 int createServerSocket(unsigned short port) {
     int socket_d;
     struct sockaddr_in serv_addr;       // Локальный адрес сокета.
 
-            // Создаем сокет для входящих сообщений.
+    // Создаем сокет для входящих сообщений.
     if ((socket_d = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0) {
         printf("Socket error");
         exit(-1);
     }
 
-            // Настраиваем сервер.
+    // Настраиваем сервер.
     memset(&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
     serv_addr.sin_port = htons(port);
 
-            // Связываемся с адресом.
+    // Связываемся с адресом.
     if (bind(socket_d, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
         printf("Bind failed");
         exit(-1);
     }
 
-            // Помечаем сокет как слушателя входящих сообщений.
+    // Помечаем сокет как слушателя входящих сообщений.
     if (listen(socket_d, MAXPENDING) < 0) {
         printf("Listen failed");
         exit(-1);
     }
 
-    return sock_d;
+    return socket_d;
 }
 
 void handleClient(int server_socket, int id) {
     int client_socket;
     struct sockaddr_in client_addr;
-    
+
     unsigned int client_len = sizeof(client_addr);
 
     // Ожидаем клиент для подключения.
@@ -179,12 +179,12 @@ void handleClient(int server_socket, int id) {
         printf("Failed to connect with client");
         exit(-1);
     }
-    printf("Connected with client successfully\n);
-    
+    printf("Connected with client successfully\n");
+
     char buffer[MAX_SIZE];
     sem_post(&msg_adr[id].parent_sem);
-    
-    while (true) {
+
+    while (1) {
         sem_wait(&msg_adr[id].child_sem);
         if (msg_adr[id].type == 3) {
             break;
@@ -213,7 +213,7 @@ void handleClient(int server_socket, int id) {
     sem_post(&msg_adr[id].parent_sem);
 }
 
-int readInt(int file, int *c) {		// Считыватель интов с файла.
+int readInt(int file, int *c) {    // Считыватель интов с файла.
     char line[10];
     for (int i = 0; i < 10; ++i) {
         int num = read(file, &line[i], sizeof(char));
@@ -229,6 +229,8 @@ int readInt(int file, int *c) {		// Считыватель интов с фай�
     return 1;
 }
 
+
+
 void parentSignalHandler(int signal){
     printf("Receive signal");
     for (int i = 0; msg_adr != NULL && i < pr_num; ++i) {
@@ -241,7 +243,7 @@ void parentSignalHandler(int signal){
         if (shm_unlink(sh_memo) == -1) {
             perror("shm_unlink");
             printf("Error getting pointer to shared memory");
-	    exit(-1);
+            exit(-1);
         }
     }
     printf("Shared memory closed.\n");
@@ -253,8 +255,8 @@ int main(int argc, char *argv[]) {
         printf("Wrong arguments");
         exit(-1);
     }
-    
-                          
+
+
     unsigned short server_port = atoi(argv[4]);         // Порт сервера.
     int serv_sock = createServerSocket(server_port);    // Сокет сервера.
     pr_num = atoi(argv[1]);
@@ -271,19 +273,30 @@ int main(int argc, char *argv[]) {
         exit(-1);
     }
 
-    msg_adr = mmap(0, sizeof(message) * pr_num, PROT_WRITE | PROT_READ, MAP_SHARED, shmid, 0);
+    msg_adr = mmap(0, sizeof(message) * pr_num + sizeof(observer), PROT_WRITE | PROT_READ, MAP_SHARED, shmid, 0);
+    obs_adr = mmap(0, sizeof(message) * pr_num + sizeof(observer), PROT_WRITE | PROT_READ, MAP_SHARED, shmid, 0)
+            + sizeof(message) * pr_num;
+
+    if (sem_init(&obs_adr->child_sem, 1, 0) == -1) {
+        printf("Failed to create child observer semaphore");
+        exit(-1);
+    }
+    if (sem_init(&obs_adr->parent_sem, 1, 0) == -1) {
+        printf("Failed to create parent observer semaphore");
+        exit(-1);
+    }
 
     for (int i = 0; i < pr_num; ++i) {
         if (sem_init(&msg_adr[i].child_sem, 1, 0) == -1) {
-            printf("Failed to create child semaphore");
+            printf("Failed to create child client semaphore");
             exit(-1);
         }
         if (sem_init(&msg_adr[i].parent_sem, 1, 0) == -1) {
-            printf("Failed to create parent semaphore");
+            printf("Failed to create parent client semaphore");
             exit(-1);
         }
     }
-    
+
     prev = signal(SIGINT, parentSignalHandler);
 
     for (int i = 0; i < pr_num; ++i) {
@@ -293,15 +306,14 @@ int main(int argc, char *argv[]) {
             exit(-1);
         } else if (process_id == 0) {
             signal(SIGINT, prev);
-            handleClient(server_socket, i);
+            handleClient(serv_sock, i);
             exit(0);
         }
     }
-
     for (int i = 0; i < pr_num; ++i) { // Дожидаемся всех клиентов.
         sem_wait(&msg_adr[i].parent_sem);
     }
-
+    
     int file_in = open(argv[2], O_RDONLY, S_IRWXU);
     int file_out = open(argv[3], O_CREAT | O_TRUNC | O_WRONLY, S_IRWXU);
     int end_of_file = 1;
@@ -310,7 +322,7 @@ int main(int argc, char *argv[]) {
         for (int i = 0; i < pr_num; ++i, ++running) {
             int size = 0;
             for (; size < MAX_SIZE; ++size) {
-                end_of_file = readInt(in_file, &msg_adr[i].coded[size]);
+                end_of_file = readInt(file_in, &msg_adr[i].coded[size]);
                 if (end_of_file == -1) {
                     break;
                 }
@@ -335,7 +347,7 @@ int main(int argc, char *argv[]) {
     }
     close(file_in);
     close(file_out);
-
+    
     for (int i = 0; i < pr_num; ++i) {
         msg_adr[i].type = 3;
         sem_post(&msg_adr[i].child_sem);
@@ -363,5 +375,6 @@ int main(int argc, char *argv[]) {
             pr_num--;
         }
     }
-    close(server_socket);
+    close(serv_sock);
 }
+```

@@ -14,14 +14,14 @@
 
 #define MAX_SIZE 4000
 
-int codes[27] = {5, 11, 8, 10, 3, 16, 29, 31, 4, 9, 17,		// Система кодов.
+int codes[27] = {5, 11, 8, 10, 3, 16, 29, 31, 4, 9, 17,    // Система кодов.
                  38, 42, 54, 6, 12, 28, 39, 36, 7, 14,
                  19, 22, 27, 34, 2, 16};
 
-char decode(int code) {			// Декодер.
+char decode(int code) {      // Декодер.
     for (int i = 0; i < 27; ++i) {
-	if (code == 16) {
-	    return ' ';
+  if (code == 16) {
+      return ' ';
         } else if (codes[i] == code) {
             return 'a' + i;
         }
@@ -69,7 +69,7 @@ int main(int argc, char *argv[])
         char decoded[MAX_SIZE + 1];
         int i = 0;
         for (; i < received_bytes / 5; ++i) {
-            printf("Message recieved: ")
+            printf("Message recieved: ");
             printf("%d ", buffer[i]);
             decoded[i] = decode(buffer[i]);
         }

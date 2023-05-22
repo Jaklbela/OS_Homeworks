@@ -33,7 +33,7 @@ typedef struct {
     };
 } message;
 
-message *msg_adr = NULL;  		// Адрес сообщения в разделяемой памяти.
+message *msg_adr = NULL;      // Адрес сообщения в разделяемой памяти.
 
 typedef struct {
     int type;
@@ -43,7 +43,7 @@ typedef struct {
     char buffer[MAX_SIZE];
 } observer;
 
-message *obs_adr = NULL;  		// Адрес сообщения для наблюдателя в разделяемой памяти.
+observer *obs_adr = NULL;      // Адрес сообщения для наблюдателя в разделяемой памяти.
 
 int createServerSocket(unsigned short port) {
     int socket_d;
@@ -73,7 +73,7 @@ int createServerSocket(unsigned short port) {
         exit(-1);
     }
 
-    return sock_d;
+    return socket_d;
 }
 
 void handleClient(int server_socket, int id) {
@@ -87,12 +87,12 @@ void handleClient(int server_socket, int id) {
         printf("Failed to connect with client");
         exit(-1);
     }
-    printf("Connected with client successfully\n);
+    printf("Connected with client successfully\n");
 
     char buffer[MAX_SIZE];
     sem_post(&msg_adr[id].parent_sem);
 
-    while (true) {
+    while (1) {
         sem_wait(&msg_adr[id].child_sem);
         if (msg_adr[id].type == 3) {
             break;
@@ -121,7 +121,7 @@ void handleClient(int server_socket, int id) {
     sem_post(&msg_adr[id].parent_sem);
 }
 
-int readInt(int file, int *c) {		// Считыватель интов с файла.
+int readInt(int file, int *c) {    // Считыватель интов с файла.
     char line[10];
     for (int i = 0; i < 10; ++i) {
         int num = read(file, &line[i], sizeof(char));
@@ -136,6 +136,8 @@ int readInt(int file, int *c) {		// Считыватель интов с фай�
     sscanf(line, "%d", c);
     return 1;
 }
+
+
 
 void parentSignalHandler(int signal){
     printf("Receive signal");
@@ -212,7 +214,7 @@ int main(int argc, char *argv[]) {
             exit(-1);
         } else if (process_id == 0) {
             signal(SIGINT, prev);
-            handleClient(server_socket, i);
+            handleClient(serv_sock, i);
             exit(0);
         }
     }
@@ -232,15 +234,15 @@ int main(int argc, char *argv[]) {
         unsigned int observer_len = sizeof(observer_addr);
 
         // Ожидаем наблюдателя для подключения.
-        if ((observer_socket = accept(server_socket, (struct sockaddr *) &observer_addr, &observer_len)) < 0) {
+        if ((observer_socket = accept(serv_sock, (struct sockaddr *) &observer_addr, &observer_len)) < 0) {
             printf("Failed to connect with observer");
             exit(-1);
         }
-        printf("Connected with observer successfully\n);
+        printf("Connected with observer successfully\n");
 
         sem_post(&obs_adr->parent_sem);
 
-        while (true) {
+        while (1) {
             sem_wait(&obs_adr->child_sem);
             if (obs_adr->type == 3) {
                 break;
@@ -254,10 +256,12 @@ int main(int argc, char *argv[]) {
         }
         close(shmid);
         close(observer_socket);
-        close(server_socket);
+        close(serv_sock);
         sem_post(&obs_adr->parent_sem);
         exit(0);
     }
+    
+    
 
     int file_in = open(argv[2], O_RDONLY, S_IRWXU);
     int file_out = open(argv[3], O_CREAT | O_TRUNC | O_WRONLY, S_IRWXU);
@@ -267,7 +271,7 @@ int main(int argc, char *argv[]) {
         for (int i = 0; i < pr_num; ++i, ++running) {
             int size = 0;
             for (; size < MAX_SIZE; ++size) {
-                end_of_file = readInt(in_file, &msg_adr[i].coded[size]);
+                end_of_file = readInt(file_in, &msg_adr[i].coded[size]);
                 if (end_of_file == -1) {
                     break;
                 }
@@ -277,7 +281,6 @@ int main(int argc, char *argv[]) {
             }
             msg_adr[i].size = size;
             msg_adr[i].type = 1;
-            sprintf(obs_adr->buffer, "%s", message);
             sem_post(&msg_adr[i].child_sem);
             sem_post(&obs_adr->child_sem);
             sem_wait(&obs_adr->parent_sem);
@@ -289,9 +292,9 @@ int main(int argc, char *argv[]) {
                 printf("Encoded message: ");
                 printf("%c", msg_adr[i].uncoded[j]);
                 write(file_out, &msg_adr[i].uncoded[j], 1);
+                sprintf(obs_adr->buffer, "%s", msg_adr[i].uncoded[j]);
             }
             printf("\n");
-            sprintf(obs_adr->buffer, "%s", message);
             sem_post(&obs_adr->child_sem);
             sem_wait(&obs_adr->parent_sem);
         }
@@ -331,5 +334,5 @@ int main(int argc, char *argv[]) {
             pr_num--;
         }
     }
-    close(server_socket);
+    close(serv_sock);
 }

@@ -375,11 +375,8 @@ int main(int argc, char *argv[])
     exit(0);
 }
 ```
-## Код сервера изменился незначительно, пусть будет приложен
+## Код сервера на си
 ```c
-#include <sys/wait.h>
-#include <sys/mman.h>
-#include <semaphore.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/types.h>
@@ -388,48 +385,26 @@ int main(int argc, char *argv[])
 #include <sys/shm.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <semaphore.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <string.h>
+#include <sys/mman.h>
 
 #define MAX_SIZE 4000
-#define MAXPENDING 5        // Максимум запросов на соединение.
 
-void (*prev)(int);
-char *sh_memo = "shared_memory";
-int shmid = -1;
 int pr_num;
+int socket_d;
+struct sockaddr_in serv_addr;
+struct sockaddr_in obs_addr;
+unsigned int client_len = sizeof(struct sockaddr_in);
+unsigned int obs_len = sizeof(struct sockaddr_in);
+struct sockaddr_in client_adds[25];
 
-// Структура сообщения, с которым идет работа.
-typedef struct {
-    int type;
-    int size;
-    sem_t child_sem;
-    sem_t parent_sem;
-    union {
-        char uncoded[MAX_SIZE * sizeof(int)];
-        int coded[MAX_SIZE];
-    };
-} message;
-
-message *msg_adr = NULL;      // Адрес сообщения в разделяемой памяти.
-
-typedef struct {
-    int type;
-    int size;
-    sem_t child_sem;
-    sem_t parent_sem;
-    char buffer[MAX_SIZE];
-} observer;
-
-observer *obs_adr = NULL;      // Адрес сообщения для наблюдателя в разделяемой памяти.
-
-int createServerSocket(unsigned short port) {
-    int socket_d;
-    struct sockaddr_in serv_addr;       // Локальный адрес сокета.
+void createServerSocket(unsigned short port) {
 
     // Создаем сокет для входящих сообщений.
-    if ((socket_d = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0) {
+    if ((socket_d = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0) {
         printf("Socket error");
         exit(-1);
     }
@@ -445,59 +420,32 @@ int createServerSocket(unsigned short port) {
         printf("Bind failed");
         exit(-1);
     }
-
-    // Помечаем сокет как слушателя входящих сообщений.
-    if (listen(socket_d, MAXPENDING) < 0) {
-        printf("Listen failed");
-        exit(-1);
-    }
-
-    return socket_d;
 }
 
-void handleClient(int server_socket, int id) {
-    int client_socket;
-    struct sockaddr_in client_addr;
+void getClients() {
+    for (int i = 0; i < pr_num; ++i) {
+        int msg_size;
+        char buffer[4000];
+        if ((msg_size = recvfrom(socket_d, buffer, 3999, 0,
+                                 (struct sockaddr *) &client_adds[i], &client_len)) < 0) {
+            printf("Recieve failed");
+            exit(-1);
+        }
+        buffer[msg_size] = '\0';
+        printf("Handling decoder client");
+    }
+}
 
-    unsigned int client_len = sizeof(client_addr);
-
-    // Ожидаем клиент для подключения.
-    if ((client_socket = accept(server_socket, (struct sockaddr *) &client_addr, &client_len)) < 0) {
-        printf("Failed to connect with client");
+void getObserver() {
+    int msg_size;
+    char buffer[4000];
+    if ((msg_size = recvfrom(socket_d, buffer, 3999, 0,
+                             (struct sockaddr *) &obs_addr, &obs_len)) < 0) {
+        printf("Receiving failed");
         exit(-1);
     }
-    printf("Connected with client successfully\n");
-
-    char buffer[MAX_SIZE];
-    sem_post(&msg_adr[id].parent_sem);
-
-    while (1) {
-        sem_wait(&msg_adr[id].child_sem);
-        if (msg_adr[id].type == 3) {
-            break;
-        }
-        if (send(client_socket, &msg_adr[id].coded, msg_adr[id].size * 4, 0) != msg_adr[id].size * 4) {
-            printf("Message send failed");
-            exit(-1);
-        }
-        sleep(2);
-
-        int received_size;
-        if ((received_size = recv(client_socket, buffer, MAX_SIZE, 0)) < 0) {
-            printf("Receiving failed");
-            exit(-1);
-        }
-        msg_adr[id].size = received_size;
-        for (int i = 0; i < msg_adr[id].size; ++i) {
-            msg_adr[id].uncoded[i] = buffer[i];
-        }
-        msg_adr[id].type = 2;
-        sem_post(&msg_adr[id].parent_sem);
-    }
-    close(shmid);
-    close(client_socket);
-    close(server_socket);
-    sem_post(&msg_adr[id].parent_sem);
+    buffer[msg_size] = '\0';
+    printf("Handling observer client.\n");
 }
 
 int readInt(int file, int *c) {    // Считыватель интов с файла.
@@ -516,203 +464,123 @@ int readInt(int file, int *c) {    // Считыватель интов с фа�
     return 1;
 }
 
-
-
-void parentSignalHandler(int signal){
-    printf("Receive signal");
-    for (int i = 0; msg_adr != NULL && i < pr_num; ++i) {
-        sem_destroy(&msg_adr[i].child_sem);
-        sem_destroy(&msg_adr[i].parent_sem);
-    }
-    printf("Children semaphores closed\n");
-    printf("Parent semaphore closed.\n");
-    if ((shmid = shm_open(sh_memo, O_CREAT | O_RDWR, S_IRWXU)) == -1) {
-        if (shm_unlink(sh_memo) == -1) {
-            perror("shm_unlink");
-            printf("Error getting pointer to shared memory");
-            exit(-1);
-        }
-    }
-    printf("Shared memory closed.\n");
-    prev(signal);
-}
-
 int main(int argc, char *argv[]) {
     if (argc != 5) {
         printf("Wrong arguments");
         exit(-1);
     }
 
-
-    unsigned short server_port = atoi(argv[4]);         // Порт сервера.
-    int serv_sock = createServerSocket(server_port);    // Сокет сервера.
+    int buffer[MAX_SIZE];
+    unsigned short serv_port = atoi(argv[4]);         // Порт сервера.
+    struct sockaddr_in inp_addr;
+    unsigned int inp_size = sizeof(inp_addr);
+    int received_bytes;
+    int input_file = open(argv[2], O_RDONLY, S_IRWXU);
+    int output_file = open(argv[3], O_CREAT | O_TRUNC | O_WRONLY, S_IRWXU);
     pr_num = atoi(argv[1]);
 
-    if ((shmid = shm_open(sh_memo, O_CREAT | O_RDWR, S_IRWXU)) == -1) {
-        printf("File is already open");
-        exit(-1);
-    } else {
-        printf("File is opened.\n");
-    }
+    createServerSocket(serv_port);
+    getClients();
+    getObserver();
 
-    if (ftruncate(shmid, sizeof(message) * pr_num) == -1) {     // Выделяем память.
-        printf("Memory sizing error");
-        exit(-1);
-    }
+    char message[10000];
+    char decoded_part[MAX_SIZE + 1];
+    char decoded[(MAX_SIZE + 1) * pr_num];
 
-    msg_adr = mmap(0, sizeof(message) * pr_num + sizeof(observer), PROT_WRITE | PROT_READ, MAP_SHARED, shmid, 0);
-    obs_adr = mmap(0, sizeof(message) * pr_num + sizeof(observer), PROT_WRITE | PROT_READ, MAP_SHARED, shmid, 0)
-            + sizeof(message) * pr_num;
-
-    if (sem_init(&obs_adr->child_sem, 1, 0) == -1) {
-        printf("Failed to create child observer semaphore");
-        exit(-1);
-    }
-    if (sem_init(&obs_adr->parent_sem, 1, 0) == -1) {
-        printf("Failed to create parent observer semaphore");
-        exit(-1);
-    }
-
-    for (int i = 0; i < pr_num; ++i) {
-        if (sem_init(&msg_adr[i].child_sem, 1, 0) == -1) {
-            printf("Failed to create child client semaphore");
-            exit(-1);
-        }
-        if (sem_init(&msg_adr[i].parent_sem, 1, 0) == -1) {
-            printf("Failed to create parent client semaphore");
-            exit(-1);
-        }
-    }
-
-    prev = signal(SIGINT, parentSignalHandler);
-
-    for (int i = 0; i < pr_num; ++i) {
-        pid_t process_id;
-        if ((process_id = fork()) < 0) {
-            printf("Failed to fork a process");
-            exit(-1);
-        } else if (process_id == 0) {
-            signal(SIGINT, prev);
-            handleClient(serv_sock, i);
-            exit(0);
-        }
-    }
-    for (int i = 0; i < pr_num; ++i) { // Дожидаемся всех клиентов.
-        sem_wait(&msg_adr[i].parent_sem);
-    }
-
-    pid_t observer_id;
-    if ((observer_id = fork()) < 0) {
-        printf("Failed to fork an observer process");
-        exit(-1);
-    } else if (observer_id == 0) {
-        signal(SIGINT, prev);
-        int observer_socket;
-        struct sockaddr_in observer_addr;
-
-        unsigned int observer_len = sizeof(observer_addr);
-
-        // Ожидаем наблюдателя для подключения.
-        if ((observer_socket = accept(serv_sock, (struct sockaddr *) &observer_addr, &observer_len)) < 0) {
-            printf("Failed to connect with observer");
-            exit(-1);
-        }
-        printf("Connected with observer successfully\n");
-
-        sem_post(&obs_adr->parent_sem);
-
-        while (1) {
-            sem_wait(&obs_adr->child_sem);
-            if (obs_adr->type == 3) {
-                break;
-            }
-            int size = strlen(obs_adr->buffer);
-            if (send(observer_socket, &obs_adr->buffer, size, 0) != size) {
-                printf("Failed to send a message to observer");
-                exit(-1);
-            }
-            sem_post(&obs_adr->parent_sem);
-        }
-        close(shmid);
-        close(observer_socket);
-        close(serv_sock);
-        sem_post(&obs_adr->parent_sem);
-        exit(0);
-    }
-    
-    
-
-    int file_in = open(argv[2], O_RDONLY, S_IRWXU);
-    int file_out = open(argv[3], O_CREAT | O_TRUNC | O_WRONLY, S_IRWXU);
-    int end_of_file = 1;
-    while (end_of_file == 1) {
+    int flag = 1;
+    while (flag == 1) {
         int running = 0;
         for (int i = 0; i < pr_num; ++i, ++running) {
             int size = 0;
+
             for (; size < MAX_SIZE; ++size) {
-                end_of_file = readInt(file_in, &msg_adr[i].coded[size]);
-                if (end_of_file == -1) {
+                flag = readInt(input_file, &buffer[size]);
+                if (flag == -1) {
                     break;
                 }
             }
+
             if (size == 0) {
                 break;
             }
-            msg_adr[i].size = size;
-            msg_adr[i].type = 1;
-            sem_post(&msg_adr[i].child_sem);
-            sem_post(&obs_adr->child_sem);
-            sem_wait(&obs_adr->parent_sem);
-        }
 
-        for (int i = 0; i < running; ++i) {
-            sem_wait(&msg_adr[i].parent_sem);
-            for (int j = 0; j < msg_adr[i].size; ++j) {
-                printf("Encoded message: ");
-                printf("%c", msg_adr[i].uncoded[j]);
-                write(file_out, &msg_adr[i].uncoded[j], 1);
-                sprintf(obs_adr->buffer, "%s", msg_adr[i].uncoded[j]);
+            sprintf(message, "Send message to decoder client: ");
+            for (int j = 0; j < size; ++j) {
+                sprintf(message + strlen(message), "%d ", buffer[j]);
             }
-            printf("\n");
-            sem_post(&obs_adr->child_sem);
-            sem_wait(&obs_adr->parent_sem);
+
+            sprintf(message + strlen(message), "\n");
+            printf("%s", message);
+
+            if (sendto(socket_d, buffer, sizeof(int) * size, 0,
+                       (struct sockaddr *) &client_adds[i], client_len) != sizeof(int) * size) {
+                printf("Sent a different number of bytes than expected.");
+                exit(-1);
+            }
+
+            if (sendto(socket_d, message, strlen(message), 0,
+                       (struct sockaddr *) &obs_addr, obs_len) != strlen(message)) {
+                printf("Sent a different number of bytes than expected.");
+                exit(-1);
+            }
+        }
+        sleep(2);
+        for (int i = 0; i < running; ++i) {
+            if ((received_bytes = recvfrom(socket_d, decoded_part, MAX_SIZE, 0,
+                                           (struct sockaddr *) &inp_addr, &inp_size)) < 0) {
+                printf("Receiving failed");
+                exit(-1);
+            }
+
+            decoded_part[received_bytes] = '\0';
+
+            for (int index = 0; index < pr_num; ++index) {
+                if (client_adds[index].sin_addr.s_addr == inp_addr.sin_addr.s_addr &&
+                    client_adds[index].sin_port == inp_addr.sin_port) {
+                    sprintf(message, "Received message from client: ");
+                    printf("%s", message);
+                    strcpy(&decoded[(MAX_SIZE + 1) * index], decoded_part);
+                    if (sendto(socket_d, message, strlen(message), 0,
+                               (struct sockaddr *) &obs_addr, obs_len) != strlen(message)) {
+                        printf("Sent a different number of bytes than expected");
+                        exit(-1);
+                    }
+                }
+            }
+        }
+        
+        for (int i = 0; i < running; ++i) {
+            int size = strlen(&decoded[(MAX_SIZE + 1) * i]);
+            if (size == 0) {
+                break;
+            }
+            write(output_file, &decoded[(MAX_SIZE + 1) * i], size);
         }
     }
-    close(file_in);
-    close(file_out);
-
-    obs_adr->type = 3;
-    sem_post(&obs_adr->child_sem);
-    sem_wait(&obs_adr->parent_sem);
-    sem_destroy(&obs_adr->parent_sem);
-    sem_destroy(&obs_adr->child_sem);
-    for (int i = 0; i < pr_num; ++i) {
-        msg_adr[i].type = 3;
-        sem_post(&msg_adr[i].child_sem);
-    }
-    for (int i = 0; i < pr_num; ++i) {
-        sem_wait(&msg_adr[i].parent_sem);
-    }
-    for (int i = 0; i < pr_num; ++i) {
-        sem_destroy(&msg_adr[i].child_sem);
-        sem_destroy(&msg_adr[i].parent_sem);
-    }
-    close(shmid);
-    if (shm_unlink(sh_memo) == -1) {
-        printf("Shared memory error");
+    
+    printf("%s", message);
+    if (sendto(socket_d, message, strlen(message), 0,
+               (struct sockaddr *) &obs_addr, obs_len) != strlen(message)) {
+        printf("Sent a different number of bytes than expected");
         exit(-1);
     }
-    while (pr_num)              // Закрываем все процессы.
-    {
-        int process_id = waitpid((pid_t) -1, NULL, WNOHANG);
-        if (process_id < 0) {
-            printf("Waitpid failed");
-        } else if (process_id == 0) {
-            break;
-        } else {
-            pr_num--;
+    
+    buffer[0] = -1;
+    for (int index = 0; index < pr_num; ++index) {
+        if (sendto(socket_d, buffer, 5, 0, (struct sockaddr *) &client_adds[index], client_len) != 5) {
+            printf("Sent a different number of bytes than expected");
+            exit(-1);
         }
     }
-    close(serv_sock);
+    
+    message[0] = '\0';
+    
+    if (sendto(socket_d, message, 1, 0, (struct sockaddr *) &obs_addr, obs_len) != 1) {
+        printf("Sent a different number of bytes than expected");
+        exit(-1);
+    }
+    close(input_file);
+    close(output_file);
+    close(socket_d);
 }
 ```

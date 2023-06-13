@@ -287,49 +287,92 @@ int main(int argc, char *argv[]) {
 ```
 ## Оценка 6-7. Существует мониторящий клиент
 ## К серверу и клиентам добавляется так же клиент-наблюдатель, который получает от сервера полностью расшифрованный текст и выводит его. Для этого к серверу отдельно добавляется связь с сокетом наблюдателя и ему также направляется сообщение.
-## Код клиента не изменилчя.
+## Код клиента не изменилcя.
 ## Код наблюдателя на си
 ```c
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <stdbool.h>
 #include <stdio.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <sys/types.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/sem.h>
+#include <sys/shm.h>
+#include <semaphore.h>
+#include <fcntl.h>
+#include <sys/mman.h>
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
     if (argc != 3) {
         printf("Wrong arguments");
         exit(-1);
     }
-    struct sockaddr_in server_addr;
-    int observer_socket;
-    if ((observer_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        perror("Ошибка при создании сокета");
+
+    int socket_d;
+    struct sockaddr_in serv_addr; // Адрес сервера.
+    unsigned short serv_port;     // Порт сервера.
+    char *serv_ip = argv[1];      // IP-адрес сервера.
+    struct sockaddr_in inp_addr;
+    unsigned int inp_size = sizeof(inp_addr);
+    int received_bytes;
+    char buffer[10000];
+
+    if ((socket_d = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0) {    // Cоздаем UDP-сокет.
+        perror("Socket failed");
         exit(1);
     }
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(atoi(argv[2]));
-    inet_pton(AF_INET, argv[1], &server_addr.sin_addr);
-    sleep(1);
-    if (connect(observer_socket, (struct sockaddr *) &server_addr, sizeof(server_addr)) < 0) {
-        perror("Ошибка соединения");
-        exit(1);
+
+    // Подключаемся к серверу.
+    memset(&serv_addr, 0, sizeof(serv_addr));
+    serv_addr.sin_family      = AF_INET;
+    serv_addr.sin_addr.s_addr = inet_addr(serv_ip);
+    serv_addr.sin_port        = htons(serv_port);
+
+    char *st = "Connected observer";
+    if (sendto(socket_d, st, strlen(st), 0, (struct sockaddr *)
+            &serv_addr, sizeof(serv_addr)) != strlen(st)) {
+        printf("Sent a different number of bytes than expected");
+        exit(-1);
     }
-    char update[4096];
-    while (true) {
-        int bytes = recv(observer_socket, update, sizeof(update) - 1, 0);
-        if (bytes <= 0) {
+
+    if ((received_bytes = recvfrom(socket_d, buffer, sizeof(buffer) - 1, 0,
+                                   (struct sockaddr *) &inp_addr, &inp_size)) < 0) {
+        printf("Receiving failed");
+        exit(-1);
+    }
+
+    if (serv_addr.sin_addr.s_addr != inp_addr.sin_addr.s_addr) {
+        printf("Received a packet from unknown source.");
+        exit(-1);
+    }
+
+    for(; received_bytes > 0;) {
+        
+        if (received_bytes == 1 && buffer[0] == '\0') {
             break;
         }
-        update[bytes] = '\0';
-        printf("%s", update);
+        
+        printf("Received message: ");
+        buffer[received_bytes] = '\0';
+        printf("%s\n", buffer);
+        sleep(1);
+        
+        if ((received_bytes = recvfrom(socket_d, buffer, sizeof(buffer) - 1, 0,
+                                       (struct sockaddr *) &inp_addr, &inp_size)) < 0) {
+            printf("Receiving failed");
+        }
+        
+        if (serv_addr.sin_addr.s_addr != inp_addr.sin_addr.s_addr) {
+            printf("Received a packet from unknown source.");
+            exit(-1);
+        }
     }
-    close(observer_socket);
-    return 0;
+
+    close(socket_d);
+    exit(0);
 }
 ```
 ## Код сервера изменился незначительно, пусть будет приложен
